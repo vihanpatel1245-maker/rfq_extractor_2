@@ -7,10 +7,43 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from datetime import datetime, timedelta
+import os
+import json
+
+# ── Authentication ─────────────────────────────────────────────────────────────
+USERS = {"anany": "dada.niruma"}
+
+def login_screen():
+    st.title("🔒 Login")
+    with st.form("login_form"):
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Login", type="primary", use_container_width=True)
+    if submitted:
+        if username in USERS and USERS[username] == password:
+            st.session_state.authenticated = True
+            st.session_state.username = username
+            st.rerun()
+        else:
+            st.error("Invalid username or password")
+
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    login_screen()
+    st.stop()
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(page_title="RFQ PDF → Excel", page_icon="📋", layout="centered")
 st.title("PDF → Excel")
+
+with st.sidebar:
+    st.write(f"Logged in as **{st.session_state.get('username', '')}**")
+    if st.button("Logout", use_container_width=True):
+        st.session_state.authenticated = False
+        st.session_state.pop("username", None)
+        st.rerun()
 
 st.markdown("""
 <style>
@@ -41,30 +74,9 @@ EXCEL_DATE_BASE = datetime(1899, 12, 30)
 def to_serial(d: datetime) -> int:
     return (d - EXCEL_DATE_BASE).days
 
-# ── MFG / MPN split (handles both "-" and "/" separators) ────────────────────
-def split_mfg_mpn(line: str):
-    """
-    Splits on the FIRST hyphen preceded by a letter, ), / or .
-    'TYCO ELECTRONICS/AMP-2102343-1'        → ('TYCO ELECTRONICS/AMP', '2102343-1')
-    'ROANWELL CORPORATION-495-119-030-648'  → ('ROANWELL CORPORATION',  '495-119-030-648')
-    'BALLARD TECHNOLOGY INC.,-CP-UA-1533'   → ('BALLARD TECHNOLOGY INC.','CP-UA-1533')
-    'SBEE CABLES (INDIA) LTD-461091016094'  → ('SBEE CABLES (INDIA) LTD','461091016094')
-    """
-    line = re.sub(r",\s*-", "-", line)   # normalise "INC.,-CP" → "INC.-CP"
-    m = re.match(r"^(.*?[A-Z\)\/\.])\s*-\s*(.+)$", line)
-    if m:
-        return m.group(1).strip().rstrip(",").strip(), m.group(2).strip()
-    return line.strip(), "NA"
-
 # ── ITEM/VALUE.(EVALUATION) extractor ────────────────────────────────────────
 def get_item_value(text: str, cust_code: str) -> str:
-    """
-    N6  → "Year of manufacturing of the material should be within X years at the time of supply."
-    CH1 → "MANUFACTURING DATE CODE SHOULD BE STRICTLY WITHIN XX YEARS OF PLACEMENT ORDER IS MANDATORY"
-    All others → "N/A"
-    """
     code = cust_code.upper()
-
     if "N6" in code:
         m = re.search(
             r"(Year of manufacturing[^.]*?within\s+\d+\s+years?[^.]*\.)",
@@ -72,7 +84,6 @@ def get_item_value(text: str, cust_code: str) -> str:
         )
         if m:
             return m.group(1).strip()
-
     if "CH1" in code:
         m = re.search(
             r"(MANUFACTURING DATE CODE[^.\n]*?WITHIN\s+\d+\s+YEARS?[^.\n]*(?:IS MANDATORY|ORDER)[^.\n]*)",
@@ -80,7 +91,6 @@ def get_item_value(text: str, cust_code: str) -> str:
         )
         if m:
             return m.group(1).strip()
-
     return "N/A"
 
 # ── Core extraction ───────────────────────────────────────────────────────────
@@ -92,32 +102,30 @@ def extract_from_pdf(pdf_bytes: bytes) -> list[dict]:
     enq_m = re.search(r"RFx number\s+(\d+)", text)
     enquiry = enq_m.group(1) if enq_m else "NA"
 
-    # 2. Cust → "BEL-" + token between 1st and 2nd "/" in Description: line
+    # 2. Cust
     desc_m = re.search(r"Description:\s*(\S+)", text)
     cust = "BEL"
     if desc_m:
         parts = desc_m.group(1).split("/")
         cust = "BEL-" + parts[1] if len(parts) > 1 else "BEL-" + parts[0]
 
-    # 2b. ITEM/VALUE.(EVALUATION) — depends on cust code
+    # 2b. ITEM/VALUE
     item_value = get_item_value(text, cust)
 
-    # 3. RFQ D → today
+    # 3. RFQ D
     rfq_d = datetime.today()
 
-    # 4 & 5 & 18. Submission period — always take the LAST date (end date)
-    # Handles both: "00:00:00- 26.08.2025 11:00:00"
-    #           and "01.06.2026 14:05:00- 10.06.2026 23:00:00"
+    # 4 & 5 & 18. Submission period
     sub_line = re.search(r"Submission period:\s*(.+)", text, re.IGNORECASE)
     if sub_line:
         all_dates = re.findall(r"(\d{2}\.\d{2}\.\d{4})\s+(\d{2}:\d{2})", sub_line.group(1))
         if all_dates:
-            last_date, last_time = all_dates[-1]   # always the end date
-            sub_date  = datetime.strptime(last_date, "%d.%m.%Y")
-            due_d     = sub_date - timedelta(days=3)
-            t         = datetime.strptime(last_time, "%H:%M")
-            due_time  = t.strftime("%I:%M %p").lstrip("0")
-            act_due   = sub_date
+            last_date, last_time = all_dates[-1]
+            sub_date = datetime.strptime(last_date, "%d.%m.%Y")
+            due_d    = sub_date - timedelta(days=3)
+            t        = datetime.strptime(last_time, "%H:%M")
+            due_time = t.strftime("%I:%M %p").lstrip("0")
+            act_due  = sub_date
         else:
             due_d = due_time = act_due = None
     else:
@@ -142,8 +150,7 @@ def extract_from_pdf(pdf_bytes: bytes) -> list[dict]:
         elif weeks_m:
             delivery_time = weeks_m.group(1) + " WEEKS"
 
-    # 7+. Bid Details — scan all lines after any "Bid Details" header
-    # NOISE lines are skipped but we STAY in bid-scanning mode (fixes page-break splits)
+    # 7+. Bid Details
     NOISE = re.compile(
         r"^(?:Item\s+Material|Qty/Unit|Quantity\s*$|Page\s+\d|Date\s*:|"
         r"Bid Invitation|Product no\.|info@|nklamin@|orantselectro@|"
@@ -161,48 +168,40 @@ def extract_from_pdf(pdf_bytes: bytes) -> list[dict]:
             continue
         if in_bid:
             if NOISE.match(s):
-                continue          # skip noise but remain in bid mode
+                continue
             bid_lines.append(s)
 
     rows = []
     i = 0
     while i < len(bid_lines):
-        # Item line: handles integer qty (106) and decimal qty (48.425)
         item_m = re.match(
             r"^(\d+)\s+(\d{8,})\s+(.+?)\s+([\d,\.]+)\s+([A-Z]+)$",
             bid_lines[i]
         )
         if item_m:
-            sn   = int(item_m.group(1)) // 10
-            cpn  = item_m.group(2)
-            desc = item_m.group(3).strip()
+            sn      = int(item_m.group(1)) // 10
+            cpn     = item_m.group(2)
+            desc    = item_m.group(3).strip()
             qty_raw = item_m.group(4).replace(",", "")
             try:
                 qty = float(qty_raw)
-                qty = int(qty) if qty == int(qty) else qty   # 22.000 → 22, 48.425 → 48.425
+                qty = int(qty) if qty == int(qty) else qty
             except:
                 qty = qty_raw
             unit = item_m.group(5)
 
             mfg_list, mpn_list = [], []
-
-            # Consume all following MFG/MPN lines until next item or non-matching line
             while i + 1 < len(bid_lines):
                 nxt = bid_lines[i + 1]
-                # Stop if next item row starts
                 if re.match(r"^\d+\s+\d{8,}", nxt):
                     break
-                # Must have a hyphen or slash to be a MFG/MPN line
                 if "-" not in nxt and "/" not in nxt:
                     break
-                # Split on first hyphen preceded by letter/)/./
                 nxt_n   = re.sub(r",\s*-", "-", nxt)
                 split_m = re.match(r"^(.*?[A-Z\)\/\.])\s*-\s*(.+)$", nxt_n)
                 if split_m:
-                    mfg_part = split_m.group(1).strip().rstrip(",/").strip()
-                    pn_part  = split_m.group(2).strip()
-                    mfg_list.append(mfg_part)
-                    mpn_list.append(pn_part)
+                    mfg_list.append(split_m.group(1).strip().rstrip(",/").strip())
+                    mpn_list.append(split_m.group(2).strip())
                 else:
                     break
                 i += 1
@@ -232,7 +231,6 @@ def extract_from_pdf(pdf_bytes: bytes) -> list[dict]:
             })
         i += 1
 
-    # Fallback
     if not rows:
         rows.append({col: "NA" for col in COLUMNS} | {
             "Enquiry": enquiry, "Cust": cust,
@@ -241,9 +239,7 @@ def extract_from_pdf(pdf_bytes: bytes) -> list[dict]:
             "Delivery Time": delivery_time,
             "Status": "Working",
             "ITEM/VALUE.(EVALUATION)": item_value,
-            "Remark": "N/A",
-            "ACT.Due DT": act_due,
-            "TP": "",
+            "Remark": "N/A", "ACT.Due DT": act_due, "TP": "",
         })
 
     return rows
@@ -286,7 +282,7 @@ def build_excel(all_rows: list[dict]) -> bytes:
                     cell.number_format = "DD-MMM-YY"
                 else:
                     cell.value = str(val) if val else ""
-            elif col in ("SN",):
+            elif col == "SN":
                 try:    cell.value = int(val)
                 except: cell.value = val
             elif col == "Qty":
@@ -310,7 +306,7 @@ def build_excel(all_rows: list[dict]) -> bytes:
 # ── Session state ─────────────────────────────────────────────────────────────
 if "result_excel" not in st.session_state:
     st.session_state.result_excel = None
-if "result_rows"  not in st.session_state:
+if "result_rows" not in st.session_state:
     st.session_state.result_rows  = []
 if "result_count" not in st.session_state:
     st.session_state.result_count = 0
@@ -326,7 +322,6 @@ if uploaded_files:
     st.write(f"**{len(uploaded_files)} file(s) selected**")
 
     if st.button("Generate Excel", type="primary", use_container_width=True):
-        # Reset
         st.session_state.result_excel = None
         st.session_state.result_rows  = []
         st.session_state.result_count = 0
@@ -339,7 +334,6 @@ if uploaded_files:
                 try:
                     rows = extract_from_pdf(uf.read())
                     all_rows.extend(rows)
-                    #st.success(f"✅  {uf.name}  →  {len(rows)} row(s)")
                 except Exception as e:
                     st.error(f"❌  {uf.name}: {e}")
             prog.progress((i + 1) / len(uploaded_files))
@@ -349,7 +343,7 @@ if uploaded_files:
             st.session_state.result_rows  = all_rows
             st.session_state.result_count = len(uploaded_files)
 
-# ── Download + preview (persists across reruns) ───────────────────────────────
+# ── Download + preview ────────────────────────────────────────────────────────
 if st.session_state.result_excel:
     st.markdown("---")
     st.download_button(

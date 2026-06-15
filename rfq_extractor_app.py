@@ -10,56 +10,409 @@ from datetime import datetime, timedelta
 import os
 import json
 
+# ── Page config (must be first st command) ────────────────────────────────────
+st.set_page_config(page_title="RFQ PDF → Excel", page_icon="📋", layout="centered")
+
 # ── Authentication ─────────────────────────────────────────────────────────────
 USERS = {"anany": "dada.niruma"}
 
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+
 def login_screen():
-    st.title("🔒 Login")
+    # ── Glassmorphism Login CSS ───────────────────────────────────────────────
+    st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+    /* Hide sidebar, header, footer, deploy button on login */
+    [data-testid="stSidebar"],
+    [data-testid="stToolbar"],
+    footer,
+    #MainMenu { display: none !important; }
+
+    /* Hide "Press Enter to submit form" helper text */
+    [data-testid="InputInstructions"],
+    .stFormSubmitButton [data-testid="InputInstructions"] {
+        display: none !important;
+    }
+
+    header[data-testid="stHeader"] {
+        background: transparent !important;
+    }
+
+    /* Animated gradient background */
+    .stApp {
+        background: linear-gradient(
+            135deg,
+            #1a0533 0%,
+            #2d1b69 20%,
+            #0f2027 40%,
+            #3a1c71 60%,
+            #1a0533 80%,
+            #d76d77 100%
+        );
+        background-size: 400% 400%;
+        animation: gradientShift 12s ease infinite;
+        font-family: 'Inter', sans-serif;
+    }
+
+    @keyframes gradientShift {
+        0%   { background-position: 0% 50%; }
+        50%  { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+    }
+
+    /* Center content vertically */
+    [data-testid="stMain"] {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+    }
+
+    [data-testid="stMainBlockContainer"] {
+        max-width: 420px !important;
+        width: 100%;
+        padding-top: 0 !important;
+    }
+
+    /* Glass card for the form */
+    [data-testid="stForm"] {
+        background: rgba(255, 255, 255, 0.07) !important;
+        backdrop-filter: blur(24px) saturate(180%) !important;
+        -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        border-radius: 24px !important;
+        padding: 1.5rem 2rem 2rem !important;
+        box-shadow:
+            0 8px 32px rgba(0, 0, 0, 0.35),
+            inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+    }
+
+    /* Input fields — underline style */
+    [data-testid="stForm"] [data-testid="stTextInput"] > div > div {
+        background: rgba(255, 255, 255, 0.04) !important;
+        border: none !important;
+        border-bottom: 1.5px solid rgba(255, 255, 255, 0.25) !important;
+        border-radius: 0 !important;
+        transition: border-color 0.3s ease !important;
+    }
+
+    [data-testid="stForm"] [data-testid="stTextInput"] > div > div:focus-within {
+        border-bottom-color: rgba(215, 109, 119, 0.8) !important;
+        box-shadow: none !important;
+    }
+
+    [data-testid="stForm"] input {
+        color: rgba(255, 255, 255, 0.9) !important;
+        font-family: 'Inter', sans-serif !important;
+        font-size: 0.95rem !important;
+        padding: 0.7rem 0.5rem !important;
+        caret-color: #d76d77 !important;
+    }
+
+    [data-testid="stForm"] input::placeholder {
+        color: rgba(255, 255, 255, 0.35) !important;
+    }
+
+    /* Labels */
+    [data-testid="stForm"] label {
+        color: rgba(255, 255, 255, 0.7) !important;
+        font-weight: 400 !important;
+        font-size: 0.85rem !important;
+        letter-spacing: 0.5px !important;
+    }
+
+    /* LOGIN button */
+    [data-testid="stForm"] button[kind="primary"] {
+        background: linear-gradient(
+            135deg,
+            #1a0533 0%,
+            #2d1b69 40%,
+            #3a1c71 70%,
+            #0f2027 100%
+        ) !important;
+        border: 1px solid rgba(255, 255, 255, 0.15) !important;
+        border-radius: 30px !important;
+        color: white !important;
+        padding: 0.8rem 2rem !important;
+        font-family: 'Inter', sans-serif !important;
+        font-size: 0.9rem !important;
+        font-weight: 600 !important;
+        letter-spacing: 3px !important;
+        text-transform: uppercase !important;
+        transition: all 0.35s ease !important;
+        margin-top: 0.8rem !important;
+        box-shadow: 0 4px 15px rgba(26, 5, 51, 0.4) !important;
+    }
+
+    [data-testid="stForm"] button[kind="primary"]:hover {
+        background: linear-gradient(
+            135deg,
+            #2d1b69 0%,
+            #4a2d8a 40%,
+            #d76d77 100%
+        ) !important;
+        box-shadow: 0 6px 20px rgba(45, 27, 105, 0.5) !important;
+        transform: translateY(-2px);
+        border-color: rgba(255, 255, 255, 0.25) !important;
+    }
+
+    [data-testid="stForm"] button[kind="primary"]:active {
+        transform: translateY(0);
+    }
+
+    /* Error message styling */
+    [data-testid="stForm"] + div .stAlert {
+        background: rgba(255, 75, 75, 0.15) !important;
+        border: 1px solid rgba(255, 75, 75, 0.3) !important;
+        border-radius: 12px !important;
+        color: #ff8a8a !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # ── Avatar + Title (above form, centered) ─────────────────────────────────
+    st.markdown("""
+    <div style="text-align: center; margin-bottom: 0.5rem; margin-top: -2rem;">
+        <div style="
+            width: 88px;
+            height: 88px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, rgba(255,255,255,0.12), rgba(255,255,255,0.04));
+            border: 2px solid rgba(255, 255, 255, 0.15);
+            margin: 0 auto 0.8rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+        ">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" style="opacity: 0.5;">
+                <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v1.2c0 .7.5 1.2 1.2 1.2h16.8c.7 0 1.2-.5 1.2-1.2v-1.2c0-3.2-6.4-4.8-9.6-4.8z" fill="rgba(255,255,255,0.6)"/>
+            </svg>
+        </div>
+        <p style="
+            color: rgba(255, 255, 255, 0.6);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.8rem;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            margin: 0;
+        ">Welcome Back</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Login Form ────────────────────────────────────────────────────────────
     with st.form("login_form"):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Login", type="primary", use_container_width=True)
+        username = st.text_input("✉  Username", placeholder="Enter your username", autocomplete="off")
+        password = st.text_input("🔒  Password", type="password", placeholder="Enter your password", autocomplete="new-password")
+        submitted = st.form_submit_button("LOGIN", type="primary", use_container_width=True)
+
+    # Disable browser autofill/password suggestions via JS
+    import streamlit.components.v1 as components
+    components.html("""
+    <script>
+    (function() {
+        const doc = window.parent.document;
+        // Disable autocomplete on all inputs and the form itself
+        const forms = doc.querySelectorAll('form');
+        forms.forEach(f => {
+            f.setAttribute('autocomplete', 'off');
+        });
+        const inputs = doc.querySelectorAll('input');
+        inputs.forEach(input => {
+            input.setAttribute('autocomplete', 'off');
+            input.setAttribute('data-form-type', 'other');
+            input.setAttribute('data-lpignore', 'true');
+            input.setAttribute('data-1p-ignore', 'true');
+            // Randomize name to confuse browser password manager
+            input.setAttribute('name', 'field_' + Math.random().toString(36).substr(2, 9));
+        });
+    })();
+    </script>
+    """, height=0)
+
     if submitted:
         if username in USERS and USERS[username] == password:
             st.session_state.authenticated = True
             st.session_state.username = username
             st.rerun()
         else:
-            st.error("Invalid username or password")
+            st.error("❌ Invalid username or password")
 
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
 
 if not st.session_state.authenticated:
     login_screen()
     st.stop()
 
-# ── Page config ───────────────────────────────────────────────────────────────
-st.set_page_config(page_title="RFQ PDF → Excel", page_icon="📋", layout="centered")
-st.title("PDF → Excel")
 
-with st.sidebar:
-    st.write(f"Logged in as **{st.session_state.get('username', '')}**")
-    if st.button("Logout", use_container_width=True):
-        st.session_state.authenticated = False
-        st.session_state.pop("username", None)
-        st.rerun()
+# ══════════════════════════════════════════════════════════════════════════════
+# MAIN APP (after login)
+# ══════════════════════════════════════════════════════════════════════════════
 
+# ── Main app styles ───────────────────────────────────────────────────────────
 st.markdown("""
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* Hide sidebar completely */
+[data-testid="stSidebar"] { display: none !important; }
+
+/* Same animated gradient background as login */
+.stApp {
+    background: linear-gradient(
+        135deg,
+        #1a0533 0%,
+        #2d1b69 20%,
+        #0f2027 40%,
+        #3a1c71 60%,
+        #1a0533 80%,
+        #d76d77 100%
+    );
+    background-size: 400% 400%;
+    animation: gradientShift 12s ease infinite;
+    font-family: 'Inter', sans-serif;
+}
+
+@keyframes gradientShift {
+    0%   { background-position: 0% 50%; }
+    50%  { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+/* Header transparent */
+header[data-testid="stHeader"] {
+    background: transparent !important;
+}
+
+/* Page title */
+h1 {
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 700 !important;
+    color: white !important;
+    letter-spacing: -0.5px !important;
+}
+
+/* Subheaders */
+h2, h3 {
+    font-family: 'Inter', sans-serif !important;
+    color: rgba(255, 255, 255, 0.9) !important;
+}
+
+/* Body text */
+p, span, label, .stCaption, [data-testid="stText"] {
+    font-family: 'Inter', sans-serif !important;
+    color: rgba(255, 255, 255, 0.8) !important;
+}
+
+/* File uploader — glass card */
+[data-testid="stFileUploader"] {
+    background: rgba(255, 255, 255, 0.06) !important;
+    backdrop-filter: blur(20px) saturate(160%) !important;
+    -webkit-backdrop-filter: blur(20px) saturate(160%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 16px !important;
+    padding: 1.2rem !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2) !important;
+}
+
+[data-testid="stFileUploader"] label {
+    color: rgba(255, 255, 255, 0.7) !important;
+    font-weight: 500 !important;
+    letter-spacing: 0.3px !important;
+}
+
+/* Upload button inside uploader */
+[data-testid="stFileUploader"] button {
+    background: rgba(255, 255, 255, 0.1) !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    color: rgba(255, 255, 255, 0.8) !important;
+    border-radius: 8px !important;
+    backdrop-filter: blur(10px) !important;
+}
+
+[data-testid="stFileUploader"] button:hover {
+    background: rgba(255, 255, 255, 0.18) !important;
+    border-color: rgba(255, 255, 255, 0.25) !important;
+}
+
+[data-testid="stFileUploader"] small {
+    color: rgba(255, 255, 255, 0.4) !important;
+}
+
+
+
+/* Uploaded file chips */
+[data-testid="stFileUploader"] [data-testid="stUploadedFile"] {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    border-radius: 10px !important;
+}
+
+/* Dataframe / preview — glass card */
+[data-testid="stDataFrame"] {
+    background: rgba(255, 255, 255, 0.05) !important;
+    backdrop-filter: blur(16px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 14px !important;
+    overflow: hidden !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15) !important;
+}
+
+/* Primary buttons */
 div.stButton > button[kind="primary"],
 div.stDownloadButton > button[kind="primary"] {
-    background-color: #0E577C !important;
-    border-color: #0E577C !important;
+    background: linear-gradient(135deg, #0E577C 0%, #1a7aad 100%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
     color: white !important;
+    border-radius: 12px !important;
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.5px !important;
+    padding: 0.6rem 1.5rem !important;
+    transition: all 0.3s ease !important;
+    box-shadow: 0 4px 15px rgba(14, 87, 124, 0.3) !important;
 }
 div.stButton > button[kind="primary"]:hover,
 div.stDownloadButton > button[kind="primary"]:hover {
-    background-color: #0a3f5a !important;
-    border-color: #0a3f5a !important;
+    background: linear-gradient(135deg, #0a3f5a 0%, #0E577C 100%) !important;
+    border-color: rgba(255, 255, 255, 0.2) !important;
+    box-shadow: 0 6px 20px rgba(14, 87, 124, 0.4) !important;
+    transform: translateY(-1px);
+}
+
+/* Progress bar */
+[data-testid="stProgress"] > div > div {
+    background-color: rgba(255, 255, 255, 0.1) !important;
+    border-radius: 10px !important;
+}
+[data-testid="stProgress"] > div > div > div {
+    background: linear-gradient(90deg, #0E577C, #1a7aad, #d76d77) !important;
+    border-radius: 10px !important;
+}
+
+/* Divider */
+hr {
+    border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Spinner text */
+.stSpinner > div {
+    color: rgba(255, 255, 255, 0.7) !important;
+}
+
+/* Caption */
+[data-testid="stCaption"] {
+    color: rgba(255, 255, 255, 0.5) !important;
 }
 </style>
 """, unsafe_allow_html=True)
+
+# ── Page Title ────────────────────────────────────────────────────────────────
+st.title("PDF → Excel")
 
 # ── Columns ───────────────────────────────────────────────────────────────────
 COLUMNS = [
@@ -310,38 +663,52 @@ if "result_rows" not in st.session_state:
     st.session_state.result_rows  = []
 if "result_count" not in st.session_state:
     st.session_state.result_count = 0
+if "uploader_key" not in st.session_state:
+    st.session_state.uploader_key = 0
 
 # ── UI ────────────────────────────────────────────────────────────────────────
 uploaded_files = st.file_uploader(
     "Upload PDF",
     type="pdf",
     accept_multiple_files=True,
+    key=f"pdf_uploader_{st.session_state.uploader_key}",
 )
 
 if uploaded_files:
     st.write(f"**{len(uploaded_files)} file(s) selected**")
 
-    if st.button("Generate Excel", type="primary", use_container_width=True):
-        st.session_state.result_excel = None
-        st.session_state.result_rows  = []
-        st.session_state.result_count = 0
+    if not st.session_state.result_excel:
+        # Show Generate button when no results yet
+        if st.button("Generate Excel", type="primary", use_container_width=True):
+            st.session_state.result_excel = None
+            st.session_state.result_rows  = []
+            st.session_state.result_count = 0
 
-        all_rows = []
-        prog = st.progress(0)
+            all_rows = []
+            prog = st.progress(0)
 
-        for i, uf in enumerate(uploaded_files):
-            with st.spinner(f"Reading {uf.name}…"):
-                try:
-                    rows = extract_from_pdf(uf.read())
-                    all_rows.extend(rows)
-                except Exception as e:
-                    st.error(f"❌  {uf.name}: {e}")
-            prog.progress((i + 1) / len(uploaded_files))
+            for i, uf in enumerate(uploaded_files):
+                with st.spinner(f"Reading {uf.name}…"):
+                    try:
+                        rows = extract_from_pdf(uf.read())
+                        all_rows.extend(rows)
+                    except Exception as e:
+                        st.error(f"❌  {uf.name}: {e}")
+                prog.progress((i + 1) / len(uploaded_files))
 
-        if all_rows:
-            st.session_state.result_excel = build_excel(all_rows)
-            st.session_state.result_rows  = all_rows
-            st.session_state.result_count = len(uploaded_files)
+            if all_rows:
+                st.session_state.result_excel = build_excel(all_rows)
+                st.session_state.result_rows  = all_rows
+                st.session_state.result_count = len(uploaded_files)
+                st.rerun()
+    else:
+        # Show New Conversion button when results are ready
+        if st.button("🔄 New Conversion", type="primary", use_container_width=True, key="new_conversion"):
+            st.session_state.result_excel = None
+            st.session_state.result_rows = []
+            st.session_state.result_count = 0
+            st.session_state.uploader_key += 1
+            st.rerun()
 
 # ── Download + preview ────────────────────────────────────────────────────────
 if st.session_state.result_excel:
@@ -373,3 +740,98 @@ if st.session_state.result_excel:
         f"Total: {len(st.session_state.result_rows)} row(s) "
         f"from {st.session_state.result_count} PDF(s)"
     )
+
+# ── Logout Button (bottom-right, fixed via JS) ───────────────────────────────
+if st.button("🚪 Logout", key="logout_bottom"):
+    st.session_state.authenticated = False
+    st.session_state.pop("username", None)
+    st.session_state.result_excel = None
+    st.session_state.result_rows = []
+    st.session_state.result_count = 0
+    st.rerun()
+
+import streamlit.components.v1 as components
+components.html("""
+<script>
+(function() {
+    const doc = window.parent.document;
+    const buttons = doc.querySelectorAll('button');
+    buttons.forEach(btn => {
+        const text = btn.textContent.trim();
+        // Style New Conversion button — theme-matching warm coral
+        if (text.includes('New Conversion')) {
+            btn.style.setProperty('background', 'linear-gradient(135deg, #c74b8f 0%, #d76d77 100%)', 'important');
+            btn.style.setProperty('border-color', 'rgba(255, 255, 255, 0.15)', 'important');
+            btn.style.setProperty('color', 'white', 'important');
+            btn.style.setProperty('box-shadow', '0 4px 15px rgba(199, 75, 143, 0.3)', 'important');
+            btn.style.setProperty('transition', 'all 0.3s ease');
+            btn.addEventListener('mouseenter', () => {
+                btn.style.setProperty('background', 'linear-gradient(135deg, #a83d78 0%, #c75a68 100%)', 'important');
+                btn.style.setProperty('box-shadow', '0 6px 20px rgba(199, 75, 143, 0.4)', 'important');
+            });
+            btn.addEventListener('mouseleave', () => {
+                btn.style.setProperty('background', 'linear-gradient(135deg, #c74b8f 0%, #d76d77 100%)', 'important');
+                btn.style.setProperty('box-shadow', '0 4px 15px rgba(199, 75, 143, 0.3)', 'important');
+            });
+        }
+        if (text.includes('Logout')) {
+            const container = btn.closest('[data-testid="stButton"]') || btn.closest('.stButton') || btn.parentElement;
+            container.style.position = 'fixed';
+            container.style.bottom = '24px';
+            container.style.right = '28px';
+            container.style.zIndex = '9999';
+            container.style.width = 'auto';
+            btn.style.background = 'rgba(255, 255, 255, 0.08)';
+            btn.style.border = '1px solid rgba(255, 255, 255, 0.15)';
+            btn.style.borderRadius = '10px';
+            btn.style.color = 'rgba(255, 255, 255, 0.8)';
+            btn.style.fontSize = '0.82rem';
+            btn.style.padding = '0.45rem 1.1rem';
+            btn.style.backdropFilter = 'blur(10px)';
+            btn.style.boxShadow = '0 2px 12px rgba(0, 0, 0, 0.3)';
+            btn.style.transition = 'all 0.3s ease';
+            btn.style.cursor = 'pointer';
+            btn.style.width = 'auto';
+            btn.addEventListener('mouseenter', () => {
+                btn.style.background = 'rgba(255, 75, 75, 0.2)';
+                btn.style.borderColor = 'rgba(255, 75, 75, 0.4)';
+                btn.style.color = '#ff8a8a';
+            });
+            btn.addEventListener('mouseleave', () => {
+                btn.style.background = 'rgba(255, 255, 255, 0.08)';
+                btn.style.borderColor = 'rgba(255, 255, 255, 0.15)';
+                btn.style.color = 'rgba(255, 255, 255, 0.8)';
+            });
+        }
+    });
+
+    // Fix file uploader buttons
+    const uploaderBtns = doc.querySelectorAll('[data-testid="stFileUploader"] button');
+    uploaderBtns.forEach(btn => {
+        const txt = btn.textContent.trim().toLowerCase();
+        // Hide the garbled "adc"/"add" more button
+        if (txt.includes('adc') || txt.includes('add') || txt === '+') {
+            btn.style.setProperty('font-size', '0', 'important');
+            btn.style.setProperty('width', '36px', 'important');
+            btn.style.setProperty('min-width', '36px', 'important');
+            btn.style.setProperty('height', '36px', 'important');
+            btn.style.setProperty('padding', '0', 'important');
+            btn.style.setProperty('background', 'rgba(255,255,255,0.08)', 'important');
+            btn.style.setProperty('border', '1px solid rgba(255,255,255,0.15)', 'important');
+            btn.style.setProperty('border-radius', '8px', 'important');
+            btn.style.setProperty('display', 'flex', 'important');
+            btn.style.setProperty('align-items', 'center', 'important');
+            btn.style.setProperty('justify-content', 'center', 'important');
+            btn.innerHTML = '<span style="font-size:1.2rem;color:rgba(255,255,255,0.6)">+</span>';
+        }
+        // Fix the main upload/browse button
+        if (txt.includes('upload') || txt.includes('browse')) {
+            btn.style.setProperty('background', 'rgba(255,255,255,0.1)', 'important');
+            btn.style.setProperty('border', '1px solid rgba(255,255,255,0.15)', 'important');
+            btn.style.setProperty('color', 'rgba(255,255,255,0.8)', 'important');
+            btn.style.setProperty('border-radius', '8px', 'important');
+        }
+    });
+})();
+</script>
+""", height=0)
